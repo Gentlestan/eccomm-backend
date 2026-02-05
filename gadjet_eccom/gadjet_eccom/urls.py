@@ -7,8 +7,10 @@ from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
 urlpatterns = [
     path('admin/', admin.site.urls),
     path('api/auth/', include('accounts.urls')),
-     path('api/orders/', include('orders.urls')), 
+     path('api/orders/', include('orders.urls')),
+     path('api/cart/', include('cart.urls')), 
     path('api/', include('gadjet_shop.urls')),
+    
 
     # Simple JWT endpoints
     path('api/token/', TokenObtainPairView.as_view(), name='token_obtain_pair'),

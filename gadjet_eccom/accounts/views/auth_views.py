@@ -1,6 +1,7 @@
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
+from rest_framework.permissions import AllowAny  # ✅ import
 from django.contrib.auth import authenticate, get_user_model
 from rest_framework_simplejwt.tokens import RefreshToken
 from accounts.serializers.auth_serializers import (
@@ -8,7 +9,7 @@ from accounts.serializers.auth_serializers import (
     LoginSerializer,
     ForgotPasswordSerializer,
     ResetPasswordSerializer,
-    VerifyEmailSerializer,  # new
+    VerifyEmailSerializer,
 )
 
 User = get_user_model()
@@ -18,6 +19,8 @@ User = get_user_model()
 # Registration View
 # -----------------------------
 class RegisterView(APIView):
+    permission_classes = [AllowAny]  # ✅ anyone can register
+
     def post(self, request):
         serializer = RegisterSerializer(data=request.data)
         if serializer.is_valid():
@@ -44,6 +47,8 @@ class RegisterView(APIView):
 # Email Verification View
 # -----------------------------
 class VerifyEmailView(APIView):
+    permission_classes = [AllowAny]  # ✅ anyone can verify email
+
     def post(self, request):
         serializer = VerifyEmailSerializer(data=request.data)
         if serializer.is_valid():
@@ -59,6 +64,8 @@ class VerifyEmailView(APIView):
 # Login View
 # -----------------------------
 class LoginView(APIView):
+    permission_classes = [AllowAny]  # ✅ anyone can attempt login
+
     def post(self, request):
         serializer = LoginSerializer(data=request.data)
         if serializer.is_valid():
@@ -84,6 +91,8 @@ class LoginView(APIView):
 # Forgot Password View
 # -----------------------------
 class ForgotPasswordView(APIView):
+    permission_classes = [AllowAny]
+
     def post(self, request):
         serializer = ForgotPasswordSerializer(data=request.data, context={"request": request})
         if serializer.is_valid():
@@ -100,6 +109,8 @@ class ForgotPasswordView(APIView):
 # Reset Password View
 # -----------------------------
 class ResetPasswordView(APIView):
+    permission_classes = [AllowAny]
+
     def post(self, request):
         serializer = ResetPasswordSerializer(data=request.data)
         if serializer.is_valid():

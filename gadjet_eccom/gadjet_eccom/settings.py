@@ -50,6 +50,7 @@ INSTALLED_APPS = [
     'gadjet_shop.apps.GadjetShopConfig',
     'accounts.apps.AccountsConfig',
     'orders',
+    'cart',
     "corsheaders", 
 ]
 
@@ -153,31 +154,6 @@ REST_FRAMEWORK = {
     # AUTHENTICATION
     # --------------------
     "DEFAULT_AUTHENTICATION_CLASSES": [
-        "rest_framework.authentication.TokenAuthentication",
-    ],
-
-    # --------------------
-    # PERMISSIONS
-    # --------------------
-    "DEFAULT_PERMISSION_CLASSES": [
-        "rest_framework.permissions.AllowAny",  # override per-view
-    ],
-
-    # --------------------
-    # FILTERING & PAGINATION (YOUR EXISTING CONFIG)
-    # --------------------
-    "DEFAULT_FILTER_BACKENDS": [
-        "django_filters.rest_framework.DjangoFilterBackend",
-        "rest_framework.filters.OrderingFilter",
-    ],
-    "DEFAULT_PAGINATION_CLASS": "rest_framework.pagination.PageNumberPagination",
-    "PAGE_SIZE": 10,
-}
-REST_FRAMEWORK = {
-    # --------------------
-    # AUTHENTICATION
-    # --------------------
-    "DEFAULT_AUTHENTICATION_CLASSES": [
         "rest_framework_simplejwt.authentication.JWTAuthentication",
     ],
 
@@ -185,7 +161,7 @@ REST_FRAMEWORK = {
     # PERMISSIONS
     # --------------------
     "DEFAULT_PERMISSION_CLASSES": [
-        "rest_framework.permissions.AllowAny",  # override per-view
+        "rest_framework.permissions.IsAuthenticated",  # override per-view
     ],
 
     # --------------------
