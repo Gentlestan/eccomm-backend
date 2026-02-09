@@ -2,6 +2,7 @@ from pathlib import Path
 from datetime import timedelta
 import os
 from dotenv import load_dotenv
+import dj_database_url
 
 # --------------------------------------------------
 # BASE DIR & ENV
@@ -94,16 +95,34 @@ WSGI_APPLICATION = "gadjet_eccom.wsgi.application"
 # DATABASE (MYSQL)
 # --------------------------------------------------
 
-DATABASES = {
-    "default": {
-        "ENGINE": "django.db.backends.postgresql",
-        "NAME": os.getenv("POSTGRES_DB"),
-        "USER": os.getenv("POSTGRES_USER"),
-        "PASSWORD": os.getenv("POSTGRES_PASSWORD"),
-        "HOST": os.getenv("POSTGRES_HOST", "localhost"),
-        "PORT": os.getenv("POSTGRES_PORT", "5432"),
-    }
+# Default local database (Postgres)
+LOCAL_DATABASE = {
+    "ENGINE": "django.db.backends.postgresql",
+    "NAME": os.getenv("POSTGRES_DB"),
+    "USER": os.getenv("POSTGRES_USER"),
+    "PASSWORD": os.getenv("POSTGRES_PASSWORD"),
+    "HOST": os.getenv("POSTGRES_HOST", "localhost"),
+    "PORT": os.getenv("POSTGRES_PORT", "5432"),
 }
+
+# Use DATABASE_URL if provided (e.g., Render / Heroku)
+DATABASES = {
+    "default": dj_database_url.config(
+        default=None,  # None means fallback manually
+        conn_max_age=600,
+        ssl_require=True
+    ) or LOCAL_DATABASE
+}
+
+# -----------------------
+# Static files for Render / production
+# -----------------------
+STATIC_ROOT = BASE_DIR / "staticfiles"
+
+# WhiteNoise for serving static files in production
+MIDDLEWARE.insert(1, "whitenoise.middleware.WhiteNoiseMiddleware")
+
+STATICFILES_STORAGE = "whitenoise.storage.CompressedManifestStaticFilesStorage"
 
 # --------------------------------------------------
 # AUTH
