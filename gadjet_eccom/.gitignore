@@ -1,0 +1,9 @@
+# Django
+*.pyc
+__pycache__/
+db.sqlite3
+
+# Media and static
+.env
+media/
+staticfiles/
