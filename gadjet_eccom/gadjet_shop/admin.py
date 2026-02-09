@@ -1,6 +1,10 @@
 from django.contrib import admin
+from django.utils.html import format_html
+import json
+
 from .models import Product, ProductImage, Review, ReviewImage, Category
-from orders.models import Order, OrderItem  # <-- add this
+from orders.models import Order, OrderItem
+from payments.models import Payment  # <-- add Payment model
 
 # -----------------------------
 # Inline for Product Images
@@ -96,6 +100,37 @@ class OrderItemInline(admin.TabularInline):
     can_delete = False
 
 # -----------------------------
+# Inline for Payments under Order
+# -----------------------------
+class PaymentInline(admin.TabularInline):
+    model = Payment
+    extra = 0
+    readonly_fields = (
+        'reference',
+        'amount',
+        'status',
+        'verified_at',
+        'provider_response_formatted',
+    )
+    can_delete = False
+    fieldsets = (
+        (None, {
+            'fields': ('reference', 'amount', 'status', 'verified_at')
+        }),
+        ("Provider Response", {
+            'classes': ('collapse',),
+            'fields': ('provider_response_formatted',),
+        }),
+    )
+
+    def provider_response_formatted(self, obj):
+        if obj.provider_response:
+            formatted = json.dumps(obj.provider_response, indent=2)
+            return format_html('<pre style="white-space: pre-wrap;">{}</pre>', formatted)
+        return "-"
+    provider_response_formatted.short_description = "Provider Response (JSON)"
+
+# -----------------------------
 # Order Admin
 # -----------------------------
 @admin.register(Order)
@@ -103,4 +138,4 @@ class OrderAdmin(admin.ModelAdmin):
     list_display = ('id', 'user', 'status', 'total_price', 'created_at')
     list_filter = ('status', 'created_at')
     search_fields = ('user__email', 'user__display_name')
-    inlines = [OrderItemInline]
+    inlines = [OrderItemInline, PaymentInline]
