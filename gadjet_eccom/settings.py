@@ -7,28 +7,23 @@ import dj_database_url
 # --------------------------------------------------
 # BASE DIR & ENV
 # --------------------------------------------------
-
 BASE_DIR = Path(__file__).resolve().parent.parent
-
 load_dotenv(BASE_DIR / ".env")
 
 # --------------------------------------------------
 # CORE SECURITY
 # --------------------------------------------------
-
 SECRET_KEY = os.getenv("DJANGO_SECRET_KEY", "django-insecure-dev-key")
-
 DEBUG = os.getenv("DEBUG", "True") == "True"
 
 ALLOWED_HOSTS = os.getenv(
     "ALLOWED_HOSTS",
-    "localhost,127.0.0.1"
+    "localhost,127.0.0.1,eccomm-gadjet-backend.onrender.com"
 ).split(",")
 
 # --------------------------------------------------
 # APPLICATIONS
 # --------------------------------------------------
-
 INSTALLED_APPS = [
     "django.contrib.admin",
     "django.contrib.auth",
@@ -54,9 +49,9 @@ INSTALLED_APPS = [
 # --------------------------------------------------
 # MIDDLEWARE
 # --------------------------------------------------
-
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
+    "whitenoise.middleware.WhiteNoiseMiddleware",
     "corsheaders.middleware.CorsMiddleware",
 
     "django.contrib.sessions.middleware.SessionMiddleware",
@@ -70,7 +65,6 @@ MIDDLEWARE = [
 # --------------------------------------------------
 # URLS & TEMPLATES
 # --------------------------------------------------
-
 ROOT_URLCONF = "gadjet_eccom.urls"
 
 TEMPLATES = [
@@ -92,10 +86,8 @@ TEMPLATES = [
 WSGI_APPLICATION = "gadjet_eccom.wsgi.application"
 
 # --------------------------------------------------
-# DATABASE (MYSQL)
+# DATABASE
 # --------------------------------------------------
-
-# Default local database (Postgres)
 LOCAL_DATABASE = {
     "ENGINE": "django.db.backends.postgresql",
     "NAME": os.getenv("POSTGRES_DB"),
@@ -105,29 +97,27 @@ LOCAL_DATABASE = {
     "PORT": os.getenv("POSTGRES_PORT", "5432"),
 }
 
-# Use DATABASE_URL if provided (e.g., Render / Heroku)
-DATABASES = {
-    "default": dj_database_url.config(
-        default=None,  # None means fallback manually
-        conn_max_age=600,
-        ssl_require=True
-    ) or LOCAL_DATABASE
-}
+DATABASES = dj_database_url.config(
+    default=os.getenv("DATABASE_URL") or None,
+    conn_max_age=600,
+    ssl_require=True
+)
+if not DATABASES:
+    DATABASES = {"default": LOCAL_DATABASE}
 
-# -----------------------
-# Static files for Render / production
-# -----------------------
+# --------------------------------------------------
+# STATIC & MEDIA
+# --------------------------------------------------
+STATIC_URL = "/static/"
 STATIC_ROOT = BASE_DIR / "staticfiles"
-
-# WhiteNoise for serving static files in production
-MIDDLEWARE.insert(1, "whitenoise.middleware.WhiteNoiseMiddleware")
-
 STATICFILES_STORAGE = "whitenoise.storage.CompressedManifestStaticFilesStorage"
+
+MEDIA_URL = "/media/"
+MEDIA_ROOT = BASE_DIR / "media"
 
 # --------------------------------------------------
 # AUTH
 # --------------------------------------------------
-
 AUTH_USER_MODEL = "accounts.CustomUser"
 
 AUTH_PASSWORD_VALIDATORS = [
@@ -140,7 +130,6 @@ AUTH_PASSWORD_VALIDATORS = [
 # --------------------------------------------------
 # REST FRAMEWORK & JWT
 # --------------------------------------------------
-
 REST_FRAMEWORK = {
     "DEFAULT_AUTHENTICATION_CLASSES": (
         "rest_framework_simplejwt.authentication.JWTAuthentication",
@@ -156,10 +145,7 @@ REST_FRAMEWORK = {
         "rest_framework.throttling.AnonRateThrottle",
         "rest_framework.throttling.UserRateThrottle",
     ),
-    "DEFAULT_THROTTLE_RATES": {
-        "anon": "100/day",
-        "user": "1000/day",
-    },
+    "DEFAULT_THROTTLE_RATES": {"anon": "100/day", "user": "1000/day"},
     "DEFAULT_PAGINATION_CLASS": "rest_framework.pagination.PageNumberPagination",
     "PAGE_SIZE": 10,
 }
@@ -175,7 +161,6 @@ SIMPLE_JWT = {
 # --------------------------------------------------
 # PAYSTACK
 # --------------------------------------------------
-
 PAYSTACK_SECRET_KEY = os.getenv("PAYSTACK_SECRET_KEY")
 if not PAYSTACK_SECRET_KEY:
     raise RuntimeError("PAYSTACK_SECRET_KEY is missing")
@@ -183,59 +168,42 @@ if not PAYSTACK_SECRET_KEY:
 # --------------------------------------------------
 # CORS
 # --------------------------------------------------
-
 CORS_ALLOWED_ORIGINS = os.getenv(
     "CORS_ALLOWED_ORIGINS",
-    "http://localhost:3000,http://127.0.0.1:3000"
+    "http://localhost:3000,http://127.0.0.1:3000,https://your-frontend.vercel.app"
 ).split(",")
-
 CORS_ALLOW_CREDENTIALS = True
 
 # --------------------------------------------------
-# MEDIA & STATIC
+# DEFAULT AUTO FIELD
 # --------------------------------------------------
-
-STATIC_URL = "/static/"
-MEDIA_URL = "/media/"
-MEDIA_ROOT = BASE_DIR / "media"
-
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
 # --------------------------------------------------
 # INTERNATIONALIZATION
 # --------------------------------------------------
-
 LANGUAGE_CODE = "en-us"
 TIME_ZONE = "UTC"
 USE_I18N = True
 USE_TZ = True
 
 # --------------------------------------------------
-# PRODUCTION SECURITY HARDENING
+# PRODUCTION SECURITY
 # --------------------------------------------------
-
 if not DEBUG:
-
-    # HTTPS
     SECURE_SSL_REDIRECT = True
     SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
-
-    # HSTS
     SECURE_HSTS_SECONDS = 31536000
     SECURE_HSTS_INCLUDE_SUBDOMAINS = True
     SECURE_HSTS_PRELOAD = True
 
-    # Cookies
     SESSION_COOKIE_SECURE = True
     CSRF_COOKIE_SECURE = True
     SESSION_COOKIE_HTTPONLY = True
 
-    # Browser protection
     SECURE_BROWSER_XSS_FILTER = True
     SECURE_CONTENT_TYPE_NOSNIFF = True
     X_FRAME_OPTIONS = "DENY"
-
-    # Referrer policy
     SECURE_REFERRER_POLICY = "strict-origin"
 
 else:
