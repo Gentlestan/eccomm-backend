@@ -85,27 +85,35 @@ TEMPLATES = [
 
 WSGI_APPLICATION = "gadjet_eccom.wsgi.application"
 
+
 # --------------------------------------------------
 # DATABASE
 # --------------------------------------------------
+
+# Local default Postgres
 LOCAL_DATABASE = {
     "ENGINE": "django.db.backends.postgresql",
-    "NAME": os.getenv("POSTGRES_DB"),
-    "USER": os.getenv("POSTGRES_USER"),
-    "PASSWORD": os.getenv("POSTGRES_PASSWORD"),
+    "NAME": os.getenv("POSTGRES_DB", "gadjet_eccomm_db"),
+    "USER": os.getenv("POSTGRES_USER", "postgres"),
+    "PASSWORD": os.getenv("POSTGRES_PASSWORD", ""),
     "HOST": os.getenv("POSTGRES_HOST", "localhost"),
     "PORT": os.getenv("POSTGRES_PORT", "5432"),
 }
 
-DATABASES = dj_database_url.config(
-    default=os.getenv("DATABASE_URL") or None,
-    conn_max_age=600,
-    ssl_require=True
-)
-if not DATABASES:
-    DATABASES = {"default": LOCAL_DATABASE}
+# Check if DATABASE_URL is set (Render, Heroku, etc.)
+DATABASE_URL = os.getenv("DATABASE_URL")
 
-# --------------------------------------------------
+if DATABASE_URL:
+    DATABASES = {
+        "default": dj_database_url.parse(DATABASE_URL, conn_max_age=600, ssl_require=True)
+    }
+else:
+    DATABASES = {
+        "default": LOCAL_DATABASE
+    }
+
+# Optional: print to debug on startup
+print("Using database:", DATABASES["default"]["NAME"])
 # STATIC & MEDIA
 # --------------------------------------------------
 STATIC_URL = "/static/"
