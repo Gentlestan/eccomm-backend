@@ -43,12 +43,12 @@ INSTALLED_APPS = [
     "django_filters",
     "corsheaders",
 
-    # Local apps
-    "gadjet_shop",
-    "accounts",
-    "orders",
-    "cart",
-    "payments",
+   # Local apps (FULL PATHS – REQUIRED IN PRODUCTION)
+"gadjet_eccom.apps.gadjet_shop",
+"gadjet_eccom.apps.accounts",
+"gadjet_eccom.apps.orders",
+"gadjet_eccom.apps.cart",
+"gadjet_eccom.apps.payments",
 ]
 
 # --------------------------------------------------
