@@ -178,9 +178,13 @@ if not PAYSTACK_SECRET_KEY:
 # --------------------------------------------------
 CORS_ALLOWED_ORIGINS = os.getenv(
     "CORS_ALLOWED_ORIGINS",
-    "http://localhost:3000,http://127.0.0.1:3000,https://alx-project-nexus-eosin.vercel.app"
+    "http://localhost:3000,http://127.0.0.1:3000,https://fullstack-eccomm.vercel.app"
 ).split(",")
 CORS_ALLOW_CREDENTIALS = True
+
+CSRF_TRUSTED_ORIGINS = [
+    "https://fullstack-eccomm.vercel.app",
+]
 
 # --------------------------------------------------
 # DEFAULT AUTO FIELD
@@ -218,3 +222,19 @@ else:
     SECURE_SSL_REDIRECT = False
     SESSION_COOKIE_SECURE = False
     CSRF_COOKIE_SECURE = False
+
+
+# Cloudinary config
+import cloudinary
+import cloudinary.uploader
+import cloudinary.api
+
+CLOUDINARY_STORAGE = {
+    "CLOUD_NAME": os.getenv("CLOUDINARY_CLOUD_NAME"),
+    "API_KEY": os.getenv("CLOUDINARY_API_KEY"),
+    "API_SECRET": os.getenv("CLOUDINARY_API_SECRET"),
+}
+
+DEFAULT_FILE_STORAGE = "cloudinary_storage.storage.MediaCloudinaryStorage"
+
+MEDIA_URL = "/media/"
