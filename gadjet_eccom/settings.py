@@ -237,4 +237,8 @@ CLOUDINARY_STORAGE = {
 
 DEFAULT_FILE_STORAGE = "cloudinary_storage.storage.MediaCloudinaryStorage"
 
+print("Cloud name:", os.getenv("CLOUDINARY_CLOUD_NAME"))
+print("API key:", os.getenv("CLOUDINARY_API_KEY"))
+
+
 MEDIA_URL = "/media/"
