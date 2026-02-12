@@ -1,6 +1,7 @@
 from django.db import models
 from django.utils.text import slugify
 from django.conf import settings
+from cloudinary_storage.storage import MediaCloudinaryStorage
 
 # ------------------------------
 # Category model
@@ -46,7 +47,10 @@ class Product(models.Model):
 # ------------------------------
 class ProductImage(models.Model):
     product = models.ForeignKey(Product, related_name="images", on_delete=models.CASCADE)
-    image = models.ImageField(upload_to='products/')
+    image = models.ImageField(
+        upload_to="products/",
+        storage=MediaCloudinaryStorage()  # Cloudinary storage
+    )
     is_hero = models.BooleanField(default=False)
     order = models.PositiveIntegerField(default=0)
 
@@ -75,12 +79,12 @@ class Review(models.Model):
     )
     rating = models.PositiveSmallIntegerField()
     comment = models.TextField()
-    is_approved = models.BooleanField(default=False)  # admin moderation
+    is_approved = models.BooleanField(default=False)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
         ordering = ["-created_at"]
-        unique_together = ("product", "user")  # one review per user per product
+        unique_together = ("product", "user")
 
     def __str__(self):
         return f"{self.user.email} → {self.product.name}"
@@ -91,7 +95,10 @@ class Review(models.Model):
 # ------------------------------
 class ReviewImage(models.Model):
     review = models.ForeignKey(Review, related_name="images", on_delete=models.CASCADE)
-    image = models.ImageField(upload_to='reviews/')
+    image = models.ImageField(
+        upload_to="reviews/",
+        storage=MediaCloudinaryStorage()  # Cloudinary storage
+    )
 
     def __str__(self):
         return f"Review Image for {self.review.user.email} → {self.review.product.name}"
