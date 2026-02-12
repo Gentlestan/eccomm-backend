@@ -21,6 +21,8 @@ ALLOWED_HOSTS = os.getenv(
     "localhost,127.0.0.1,eccomm-gadjet-backend.onrender.com"
 ).split(",")
 
+
+FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:3000")
 # --------------------------------------------------
 # APPLICATIONS
 # --------------------------------------------------
