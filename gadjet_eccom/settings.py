@@ -250,6 +250,10 @@ SENDGRID_API_KEY = os.getenv("SENDGRID_API_KEY")
 DEFAULT_FROM_EMAIL = os.getenv("EMAIL_FROM")
 
 
+SENDGRID_SANDBOX_MODE_IN_DEBUG = DEBUG  # True for dev, False for production
+
+
+
 
 
 MEDIA_URL = "/media/"
