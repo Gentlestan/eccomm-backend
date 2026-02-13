@@ -242,5 +242,13 @@ DEFAULT_FILE_STORAGE = "cloudinary_storage.storage.MediaCloudinaryStorage"
 print("Cloud name:", os.getenv("CLOUDINARY_CLOUD_NAME"))
 print("API key:", os.getenv("CLOUDINARY_API_KEY"))
 
+# Email backend
+EMAIL_BACKEND = "sendgrid_backend.SendgridBackend"
+SENDGRID_API_KEY = os.getenv("SENDGRID_API_KEY")
+
+# Default sender
+DEFAULT_FROM_EMAIL = os.getenv("EMAIL_FROM")
+
+
 
 MEDIA_URL = "/media/"
