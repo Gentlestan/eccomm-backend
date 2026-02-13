@@ -63,12 +63,10 @@ class RegisterSerializer(serializers.ModelSerializer):
             # Log the error but do not break signup
             print("Failed to send verification email:", e)
 
-        # Return JSON-friendly response
-        return {
-            "email": user.email,
-            "display_name": user.display_name,
-            "message": "User created. Verification email sent (or failed to send)."
-        }
+        # ✅ Return the actual user instance (not a dict)
+        # This fixes the AttributeError in RegisterView
+        user.verification_link = verification_link  # attach for dev use
+        return user
 
 
 # =====================================================
