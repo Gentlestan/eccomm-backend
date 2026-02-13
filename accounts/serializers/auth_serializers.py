@@ -5,14 +5,18 @@ from django.contrib.auth.tokens import default_token_generator
 from django.utils.encoding import force_bytes, force_str
 from django.utils.http import urlsafe_base64_encode, urlsafe_base64_decode
 from django.conf import settings
+from django.core.mail import send_mail
 
-# ------------------------------
+
+# =====================================================
 # Registration with Email Verification
-# ------------------------------
+# =====================================================
 class RegisterSerializer(serializers.ModelSerializer):
-    password = serializers.CharField(write_only=True)
+    password = serializers.CharField(write_only=True, min_length=8)
     display_name = serializers.CharField(
-        required=False, allow_blank=True, max_length=50
+        required=False,
+        allow_blank=True,
+        max_length=50
     )
 
     class Meta:
@@ -27,32 +31,40 @@ class RegisterSerializer(serializers.ModelSerializer):
         return value
 
     def create(self, validated_data):
-        # Create user but set is_active=False until email is verified
         user = CustomUser.objects.create_user(
             email=validated_data["email"],
             password=validated_data["password"],
             display_name=validated_data.get("display_name", ""),
-            is_active=False  # user inactive until verified
+            is_active=False,  # inactive until email verified
         )
 
-        # Generate verification token and UID
+        # Generate UID and token
         uid = urlsafe_base64_encode(force_bytes(user.pk))
         token = default_token_generator.make_token(user)
 
-        # Frontend verification link
         frontend_url = getattr(settings, "FRONTEND_URL", "http://localhost:3000")
         verification_link = f"{frontend_url}/verify-email/{uid}/{token}"
 
-        # 🔥 DEV MODE: print link
-        print("Email verification link:", verification_link)
+        # Send verification email
+        send_mail(
+            subject="Verify your email for Gadget Express",
+            message=(
+                f"Hi {user.display_name or 'there'},\n\n"
+                f"Click the link below to verify your email:\n\n"
+                f"{verification_link}\n\n"
+                "If you did not create this account, please ignore this email."
+            ),
+            from_email=settings.DEFAULT_FROM_EMAIL,
+            recipient_list=[user.email],
+            fail_silently=False,
+        )
 
-        # Optionally, return link in serializer for testing
-        user.verification_link = verification_link  # not saved in DB
         return user
 
-# ------------------------------
+
+# =====================================================
 # Email Verification
-# ------------------------------
+# =====================================================
 class VerifyEmailSerializer(serializers.Serializer):
     uid = serializers.CharField()
     token = serializers.CharField()
@@ -72,56 +84,74 @@ class VerifyEmailSerializer(serializers.Serializer):
 
     def save(self):
         user = self.validated_data["user"]
-        user.is_active = True  # activate user after verification
+        user.is_active = True
         user.save()
         return user
 
-# ------------------------------
+
+# =====================================================
 # Login
-# ------------------------------
+# =====================================================
 class LoginSerializer(serializers.Serializer):
     email = serializers.EmailField()
     password = serializers.CharField(write_only=True)
 
     def validate(self, data):
         user = authenticate(email=data["email"], password=data["password"])
+
         if not user:
             raise serializers.ValidationError("Invalid email or password")
+
         if not user.is_active:
             raise serializers.ValidationError("Email not verified")
+
         data["user"] = user
         return data
 
-# ------------------------------
-# Forgot Password
-# ------------------------------
+
+# =====================================================
+# Forgot Password (Send Reset Email)
+# =====================================================
 class ForgotPasswordSerializer(serializers.Serializer):
     email = serializers.EmailField()
 
     def validate_email(self, value):
-        if not CustomUser.objects.filter(email=value).exists():
-            raise serializers.ValidationError("No user found with this email")
-        return value
+        return value  # do not reveal if email exists
 
     def save(self):
         email = self.validated_data["email"]
-        user = CustomUser.objects.get(email=email)
+        user = CustomUser.objects.filter(email=email).first()
+
+        # If user does not exist, silently return
+        if not user:
+            return None
 
         uid = urlsafe_base64_encode(force_bytes(user.pk))
         token = default_token_generator.make_token(user)
 
-        # ✅ FRONTEND RESET URL (IMPORTANT)
         frontend_url = getattr(settings, "FRONTEND_URL", "http://localhost:3000")
         reset_link = f"{frontend_url}/reset-password/{uid}/{token}"
 
-        # 🔥 DEV MODE: print link
-        print("Password reset link:", reset_link)
+        send_mail(
+            subject="Reset your password for Gadget Express",
+            message=(
+                "You requested a password reset.\n\n"
+                f"Click the link below to reset your password:\n\n"
+                f"{reset_link}\n\n"
+                "If you did not request this, please ignore this email."
+            ),
+            from_email=settings.DEFAULT_FROM_EMAIL,
+            recipient_list=[user.email],
+            fail_silently=False,
+        )
 
         return reset_link
 
-# ------------------------------
+
+
+# =====================================================
 # Reset Password
-# ------------------------------
+# =====================================================
 class ResetPasswordSerializer(serializers.Serializer):
     uid = serializers.CharField()
     token = serializers.CharField()
