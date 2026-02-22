@@ -5,6 +5,7 @@ from .views import (
     UserOrderDetailView,
     CancelOrderView,
     UpdateOrderStatusView,
+    CreatePendingOrderView
 )
 
 urlpatterns = [
@@ -12,5 +13,7 @@ urlpatterns = [
     path("my-orders/", UserOrdersView.as_view(), name="user-orders"),  # GET
     path("my-orders/<int:id>/", UserOrderDetailView.as_view(), name="user-order-detail"),  # GET
     path("my-orders/<int:order_id>/cancel/", CancelOrderView.as_view(), name="cancel-order"),  # POST
-    path("admin/<int:order_id>/update-status/", UpdateOrderStatusView.as_view(), name="update-order-status"),  # PATCH
+    path("admin/<int:order_id>/update-status/", UpdateOrderStatusView.as_view(), name="update-order-status"),
+    path("create_pending/", CreatePendingOrderView.as_view(), name="create-pending-order"),
+# PATCH
 ]

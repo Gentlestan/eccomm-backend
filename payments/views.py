@@ -1,5 +1,6 @@
 # payments/views.py
 
+from decimal import Decimal
 from django.db import transaction
 from django.utils import timezone
 
@@ -17,8 +18,10 @@ from payments.services.paystack import verify_paystack_payment, verify_webhook_s
 
 class PaystackVerifyView(APIView):
     """
-    Verify Paystack payment from frontend (sync verification),
-    validate stock, create order & payment, deduct inventory.
+    Webhook-first approach:
+    - Frontend only sends 'reference' and optionally 'pending_order_id'.
+    - Backend verifies payment, checks server-side order/cart.
+    - Ensures no trusting frontend items or totals.
     """
     permission_classes = [IsAuthenticated]
 
@@ -27,7 +30,7 @@ class PaystackVerifyView(APIView):
         serializer.is_valid(raise_exception=True)
 
         reference = serializer.validated_data["reference"]
-        items = serializer.validated_data["items"]
+        pending_order_id = serializer.validated_data.get("pending_order_id")
 
         # Prevent duplicate verified payments
         if Payment.objects.filter(reference=reference, status="verified").exists():
@@ -58,43 +61,52 @@ class PaystackVerifyView(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        amount_paid = data.get("amount", 0) / 100  # Convert kobo → naira
+        # Convert amount to Decimal for safe money comparison
+        amount_paid = Decimal(data.get("amount", 0)) / Decimal("100")
 
-        # Atomic transaction for order creation
+        # Fetch pending order or cart from backend
+        try:
+            order = Order.objects.select_for_update().get(id=pending_order_id, user=request.user, status="pending")
+        except Order.DoesNotExist:
+            return Response(
+                {"detail": "Pending order not found or already processed."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        # Calculate order total server-side
+        order_total = sum(
+            Decimal(item.product.price) * item.quantity for item in order.items.all()
+        )
+
+        # Validate payment amount matches server-side order total
+        if order_total != amount_paid:
+            return Response(
+                {
+                    "detail": "Payment amount does not match order total.",
+                    "order_total": order_total,
+                    "amount_paid": amount_paid,
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # At this point: verification passed, proceed with stock deduction & payment recording
         with transaction.atomic():
-            order_total = 0
-            out_of_stock_items = []
-
-            # Lock product rows
+            # Lock all products for this order
+            product_ids = [item.product.id for item in order.items.all()]
             products_map = {
-                p.id: p for p in Product.objects.select_for_update().filter(
-                    id__in=[item["product_id"] for item in items]
-                )
+                p.id: p for p in Product.objects.select_for_update().filter(id__in=product_ids)
             }
 
-            # Validate stock
-            for item in items:
-                product = products_map.get(item["product_id"])
-                quantity = int(item["quantity"])
-
-                if not product:
-                    return Response(
-                        {"detail": f"Product ID {item['product_id']} not found."},
-                        status=status.HTTP_400_BAD_REQUEST,
-                    )
-
-                if quantity <= 0:
-                    return Response(
-                        {"detail": f"Invalid quantity for {product.name}."},
-                        status=status.HTTP_400_BAD_REQUEST,
-                    )
-
-                if product.stock < quantity:
+            # Check stock again in case concurrent orders reduced stock
+            out_of_stock_items = []
+            for item in order.items.all():
+                product = products_map[item.product.id]
+                if product.stock < item.quantity:
                     out_of_stock_items.append({
                         "product_id": product.id,
                         "product_name": product.name,
                         "available_stock": product.stock,
-                        "requested_quantity": quantity,
+                        "requested_quantity": item.quantity,
                     })
 
             if out_of_stock_items:
@@ -106,33 +118,14 @@ class PaystackVerifyView(APIView):
                     status=status.HTTP_400_BAD_REQUEST,
                 )
 
-            # Create order
-            order = Order.objects.create(
-                user=request.user,
-                status="processing",
-                processing_at=timezone.now(),
-                total_price=0,
-            )
-
-            # Deduct stock and create order items
-            for item in items:
-                product = products_map[item["product_id"]]
-                quantity = int(item["quantity"])
-
-                product.stock -= quantity
+            # Deduct stock
+            for item in order.items.all():
+                product = products_map[item.product.id]
+                product.stock -= item.quantity
                 product.save(update_fields=["stock"])
 
-                OrderItem.objects.create(
-                    order=order,
-                    product=product,
-                    quantity=quantity,
-                    price=product.price,
-                )
-
-                order_total += product.price * quantity
-
-            # Record payment
-            payment = Payment.objects.create(
+            # Record verified payment
+            Payment.objects.create(
                 user=request.user,
                 order=order,
                 reference=reference,
@@ -142,25 +135,15 @@ class PaystackVerifyView(APIView):
                 verified_at=timezone.now(),
             )
 
-            # Final amount check
-            if order_total != amount_paid:
-                payment.status = "failed"
-                payment.save(update_fields=["status"])
-                return Response(
-                    {
-                        "detail": "Payment amount does not match order total.",
-                        "order_total": order_total,
-                        "amount_paid": amount_paid,
-                    },
-                    status=status.HTTP_400_BAD_REQUEST,
-                )
-
+            # Finalize order
+            order.status = "processing"
+            order.processing_at = timezone.now()
             order.total_price = order_total
-            order.save(update_fields=["total_price"])
+            order.save(update_fields=["status", "processing_at", "total_price"])
 
         return Response(
             {
-                "detail": "Payment verified and order created successfully.",
+                "detail": "Payment verified and order processed successfully.",
                 "order_id": order.id,
                 "total_price": order_total,
             },
@@ -171,12 +154,13 @@ class PaystackVerifyView(APIView):
 class PaystackWebhookView(APIView):
     """
     Handles Paystack webhook events asynchronously.
-    Must configure the webhook URL in Paystack dashboard.
+    - Verifies signature
+    - Ensures idempotency
+    - Updates order & payment securely
     """
     permission_classes = []  # Public webhook
 
     def post(self, request):
-        # Verify webhook signature
         signature = request.headers.get("x-paystack-signature")
         if not verify_webhook_signature(request.body, signature):
             return Response({"detail": "Invalid webhook signature."}, status=status.HTTP_400_BAD_REQUEST)
@@ -186,7 +170,7 @@ class PaystackWebhookView(APIView):
         data = event.get("data", {})
 
         reference = data.get("reference")
-        amount_paid = data.get("amount", 0) / 100
+        amount_paid = Decimal(data.get("amount", 0)) / Decimal("100")
 
         if event_type != "charge.success":
             return Response({"detail": "Event ignored."}, status=status.HTTP_200_OK)
@@ -201,6 +185,7 @@ class PaystackWebhookView(APIView):
             except Payment.DoesNotExist:
                 return Response({"detail": "Payment record not found."}, status=status.HTTP_404_NOT_FOUND)
 
+            # Update payment and order
             payment.status = "verified"
             payment.verified_at = timezone.now()
             payment.amount = amount_paid
