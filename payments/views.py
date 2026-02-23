@@ -32,6 +32,8 @@ class PaystackVerifyView(APIView):
         shipping_address = serializer.validated_data.get("shipping_address", "")
 
         # 1️⃣ Convert string to UUID
+        print("DEBUG pending_order_id type:", type(pending_order_id), pending_order_id)
+
         try:
             pending_order_uuid = uuid.UUID(pending_order_id)
         except ValueError:
