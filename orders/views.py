@@ -30,6 +30,7 @@ class CreateOrderView(APIView):
 # -----------------------------
 # Create Pending Order
 # -----------------------------
+
 class CreatePendingOrderView(APIView):
     permission_classes = [IsAuthenticated]
 
@@ -37,11 +38,11 @@ class CreatePendingOrderView(APIView):
         """
         Create a pending order for the current user.
         Copies items from their cart, calculates total_price,
-        and returns a server-trusted pending_order_id and items.
+        saves the order and items in DB, and returns the order's public_id.
         """
-        from cart.models import Cart, CartItem  # make sure your cart app is imported
+        from cart.models import Cart, CartItem  # ensure cart app is imported
         from gadjet_shop.models import Product
-        import uuid
+        from orders.models import Order, OrderItem
 
         # Get the user's cart
         cart, _ = Cart.objects.get_or_create(user=request.user)
@@ -50,33 +51,46 @@ class CreatePendingOrderView(APIView):
         if not cart_items.exists():
             return Response({"error": "Cart is empty"}, status=status.HTTP_400_BAD_REQUEST)
 
-        # Build pending order data (not saved in DB yet, just a temporary server-trusted payload)
-        items = []
+        # Validate stock and calculate total price
         total_price = 0
-
         for item in cart_items:
-            # Ensure requested quantity <= stock
             if item.quantity > item.product.stock:
                 return Response(
                     {"error": f"Product '{item.product.name}' is out of stock."},
                     status=status.HTTP_400_BAD_REQUEST
                 )
-
-            items.append({
-                "product_id": item.product.id,
-                "name": item.product.name,
-                "quantity": item.quantity,
-                "price": float(item.product.price),  # send as float for frontend
-            })
             total_price += item.quantity * float(item.product.price)
 
-        # Generate a unique pending_order_id
-        pending_order_id = str(uuid.uuid4())
+        # -----------------------------
+        # Create pending Order in DB
+        # -----------------------------
+        order = Order.objects.create(
+            user=request.user,
+            total_price=total_price,
+            status="pending"
+        )
 
-        # Return JSON for frontend
+        # Create OrderItems
+        for item in cart_items:
+            OrderItem.objects.create(
+                order=order,
+                product=item.product,
+                quantity=item.quantity,
+                price=item.product.price
+            )
+
+        # Return public_id to frontend
         return Response({
-            "pending_order_id": pending_order_id,
-            "items": items,
+            "pending_order_id": str(order.public_id),
+            "items": [
+                {
+                    "product_id": item.product.id,
+                    "name": item.product.name,
+                    "quantity": item.quantity,
+                    "price": float(item.price),
+                }
+                for item in order.items.all()
+            ],
             "total_price": total_price
         }, status=status.HTTP_201_CREATED)
 
@@ -97,7 +111,7 @@ class UserOrdersView(generics.ListAPIView):
 class UserOrderDetailView(generics.RetrieveAPIView):
     serializer_class = OrderSerializer
     permission_classes = [IsAuthenticated]
-    lookup_field = "id"
+    lookup_field = "public_id"
 
     def get_queryset(self):
         return Order.objects.filter(user=self.request.user)
@@ -109,14 +123,18 @@ class UserOrderDetailView(generics.RetrieveAPIView):
 class CancelOrderView(APIView):
     permission_classes = [IsAuthenticated]
 
-    def post(self, request, order_id):
+    def post(self, request, order_id):  # rename `order_id` → `order_uuid` if you want
+        try:
+            order = Order.objects.get(public_id=order_id, user=request.user)
+        except Order.DoesNotExist:
+            return Response({"detail": "Order not found."}, status=404)
+
         serializer = CancelOrderSerializer(
-            data={"order_id": order_id}, context={"request": request}
+            data={"order_id": str(order.public_id)}, context={"request": request}
         )
         serializer.is_valid(raise_exception=True)
         serializer.save()
-        return Response({"message": "Order cancelled successfully"}, status=status.HTTP_200_OK)
-
+        return Response({"message": "Order cancelled successfully"}, status=200)
 
 # -----------------------------
 # Admin: Update order status
@@ -125,12 +143,17 @@ class UpdateOrderStatusView(APIView):
     permission_classes = [IsAdminUser]
 
     def patch(self, request, order_id):
+        try:
+            order = Order.objects.get(public_id=order_id)
+        except Order.DoesNotExist:
+            return Response({"detail": "Order not found."}, status=404)
+
         serializer = UpdateOrderStatusSerializer(
-            data={"order_id": order_id, "status": request.data.get("status")}
+            data={"order_id": str(order.public_id), "status": request.data.get("status")}
         )
         serializer.is_valid(raise_exception=True)
         serializer.save()
         return Response(
             {"message": f"Order status updated to {serializer.validated_data['status']}"},
-            status=status.HTTP_200_OK
+            status=200
         )

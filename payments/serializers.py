@@ -1,12 +1,13 @@
 from rest_framework import serializers
+import uuid
 
 class PaystackVerifySerializer(serializers.Serializer):
     """
     Serializer for verifying Paystack payments.
 
-    Frontend should only send:
+    Frontend should send:
     - reference: The Paystack transaction reference
-    - pending_order_id: The server-generated ID for the pending order
+    - pending_order_id: The server-generated UUID for the pending order
     - shipping_address: Optional shipping info
     """
 
@@ -14,9 +15,8 @@ class PaystackVerifySerializer(serializers.Serializer):
         max_length=100,
         help_text="Paystack transaction reference",
     )
-    pending_order_id = serializers.CharField(
-        max_length=100,
-        help_text="Server-generated pending order ID"
+    pending_order_id = serializers.UUIDField(
+        help_text="Server-generated pending order UUID"
     )
     shipping_address = serializers.CharField(
         required=False,
@@ -31,12 +31,4 @@ class PaystackVerifySerializer(serializers.Serializer):
         """
         if not value.strip():
             raise serializers.ValidationError("Payment reference cannot be blank.")
-        return value
-
-    def validate_pending_order_id(self, value):
-        """
-        Ensure pending_order_id is provided and not blank.
-        """
-        if not value.strip():
-            raise serializers.ValidationError("Pending order ID cannot be blank.")
         return value

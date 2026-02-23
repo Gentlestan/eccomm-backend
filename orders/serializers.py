@@ -4,7 +4,6 @@ from django.utils import timezone
 from .models import Order, OrderItem
 from gadjet_shop.models import Product, Review
 
-
 # ------------------------------
 # Review Summary Serializer (READ)
 # ------------------------------
@@ -20,7 +19,6 @@ class ReviewSummarySerializer(serializers.ModelSerializer):
         if obj.user:
             return obj.user.display_name or obj.user.email.split("@")[0]
         return "Anonymous"
-
 
 # ------------------------------
 # Product Summary Serializer (READ)
@@ -40,7 +38,6 @@ class ProductSummarySerializer(serializers.ModelSerializer):
         reviews = obj.reviews.filter(is_approved=True).select_related("user")
         return ReviewSummarySerializer(reviews, many=True).data
 
-
 # ------------------------------
 # Order Item Serializer (READ)
 # ------------------------------
@@ -52,13 +49,13 @@ class OrderItemSerializer(serializers.ModelSerializer):
         model = OrderItem
         fields = ["product", "quantity", "price"]
 
-
 # ------------------------------
 # Main Order Serializer (READ)
 # ------------------------------
 class OrderSerializer(serializers.ModelSerializer):
     items = OrderItemSerializer(many=True, read_only=True)
     total_price = serializers.DecimalField(max_digits=10, decimal_places=2, coerce_to_string=False)
+    public_id = serializers.UUIDField(read_only=True)  # << expose UUID instead of id
 
     created_at = serializers.DateTimeField(format="%Y-%m-%d %H:%M:%S", read_only=True)
     processing_at = serializers.DateTimeField(format="%Y-%m-%d %H:%M:%S", read_only=True)
@@ -69,15 +66,14 @@ class OrderSerializer(serializers.ModelSerializer):
     class Meta:
         model = Order
         fields = [
-            "id", "status", "created_at", "total_price",
+            "public_id", "status", "created_at", "total_price",
             "processing_at", "shipped_at", "delivered_at", "cancelled_at",
             "items",
         ]
         read_only_fields = [
-            "created_at", "processing_at", "shipped_at", "delivered_at",
+            "public_id", "created_at", "processing_at", "shipped_at", "delivered_at",
             "cancelled_at", "total_price",
         ]
-
 
 # ------------------------------
 # Order Creation Serializer (WRITE)
@@ -85,7 +81,6 @@ class OrderSerializer(serializers.ModelSerializer):
 class OrderItemCreateSerializer(serializers.Serializer):
     product_id = serializers.IntegerField()
     quantity = serializers.IntegerField(min_value=1)
-
 
 class OrderCreateSerializer(serializers.Serializer):
     items = OrderItemCreateSerializer(many=True)
@@ -130,17 +125,16 @@ class OrderCreateSerializer(serializers.Serializer):
 
         return order
 
-
 # ------------------------------
 # Cancel Order Serializer (WRITE)
 # ------------------------------
 class CancelOrderSerializer(serializers.Serializer):
-    order_id = serializers.IntegerField()
+    order_id = serializers.UUIDField()  # << changed to UUIDField
 
     def validate_order_id(self, order_id):
         request = self.context["request"]
         try:
-            order = Order.objects.select_for_update().get(id=order_id, user=request.user)
+            order = Order.objects.select_for_update().get(public_id=order_id, user=request.user)
         except Order.DoesNotExist:
             raise serializers.ValidationError("Order not found.")
         if order.status != "pending":
@@ -152,7 +146,7 @@ class CancelOrderSerializer(serializers.Serializer):
         order_id = self.validated_data["order_id"]
 
         with transaction.atomic():
-            order = Order.objects.select_for_update().get(id=order_id, user=request.user)
+            order = Order.objects.select_for_update().get(public_id=order_id, user=request.user)
             order.status = "cancelled"
             order.cancelled_at = timezone.now()
             order.save()
@@ -165,12 +159,11 @@ class CancelOrderSerializer(serializers.Serializer):
 
         return order
 
-
 # ------------------------------
 # Admin Order Status Update Serializer (WRITE)
 # ------------------------------
 class UpdateOrderStatusSerializer(serializers.Serializer):
-    order_id = serializers.IntegerField()
+    order_id = serializers.UUIDField()  # << changed to UUIDField
     status = serializers.ChoiceField(choices=Order.STATUS_CHOICES)
 
     def save(self):
@@ -178,7 +171,7 @@ class UpdateOrderStatusSerializer(serializers.Serializer):
         new_status = self.validated_data["status"]
 
         with transaction.atomic():
-            order = Order.objects.select_for_update().get(id=order_id)
+            order = Order.objects.select_for_update().get(public_id=order_id)
             order.status = new_status
             now = timezone.now()
 

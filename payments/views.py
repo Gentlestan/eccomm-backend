@@ -1,5 +1,6 @@
 # payments/views.py
 
+import uuid
 from django.db import transaction
 from django.utils import timezone
 
@@ -17,7 +18,7 @@ from payments.services.paystack import verify_paystack_payment, verify_webhook_s
 
 class PaystackVerifyView(APIView):
     """
-    Verify Paystack payment from frontend using pending order,
+    Verify Paystack payment using pending order UUID (public_id),
     validate stock, create order items & payment, deduct inventory.
     """
     permission_classes = [IsAuthenticated]
@@ -28,21 +29,29 @@ class PaystackVerifyView(APIView):
 
         reference = serializer.validated_data["reference"]
         pending_order_id = serializer.validated_data["pending_order_id"]
-        
-        print("PENDING ORDER ID:", pending_order_id, type(pending_order_id)) 
         shipping_address = serializer.validated_data.get("shipping_address", "")
 
-        # 1️⃣ Fetch pending order
+        # 1️⃣ Convert string to UUID
         try:
-            order = Order.objects.get(id=pending_order_id, user=request.user, status="pending")
+            pending_order_uuid = uuid.UUID(pending_order_id)
+        except ValueError:
+            return Response({"detail": "Invalid pending_order_id."}, status=400)
+
+        # 2️⃣ Fetch pending order using public_id
+        try:
+            order = Order.objects.get(
+                public_id=pending_order_uuid,
+                user=request.user,
+                status="pending"
+            )
         except Order.DoesNotExist:
             return Response({"detail": "Pending order not found."}, status=status.HTTP_404_NOT_FOUND)
 
-        # 2️⃣ Prevent duplicate verified payments
+        # 3️⃣ Prevent duplicate verified payments
         if Payment.objects.filter(reference=reference, status="verified").exists():
             return Response({"detail": "Payment already verified."}, status=status.HTTP_400_BAD_REQUEST)
 
-        # 3️⃣ Verify payment with Paystack API
+        # 4️⃣ Verify payment with Paystack API
         try:
             paystack_response = verify_paystack_payment(reference)
         except Exception as e:
@@ -53,30 +62,40 @@ class PaystackVerifyView(APIView):
 
         amount_paid = paystack_response["data"]["amount"] / 100  # Convert kobo → naira
 
-        # 4️⃣ Process order atomically
+        # 5️⃣ Process order atomically
         with transaction.atomic():
             order_total = 0
             out_of_stock_items = []
 
             # Lock product rows
+            product_ids = [item.product.id for item in order.items.all()]
             products_map = {
-                p.id: p for p in Product.objects.select_for_update().filter(
-                    id__in=[item.product.id for item in order.items.all()]
-                )
+                p.id: p for p in Product.objects.select_for_update().filter(id__in=product_ids)
             }
 
             # Validate stock
             for item in order.items.all():
                 product = products_map.get(item.product.id)
                 if not product:
-                    out_of_stock_items.append({"product_id": item.product.id, "available_stock": 0, "requested_quantity": item.quantity})
+                    out_of_stock_items.append({
+                        "product_id": item.product.id,
+                        "available_stock": 0,
+                        "requested_quantity": item.quantity
+                    })
                     continue
                 if product.stock < item.quantity:
-                    out_of_stock_items.append({"product_id": product.id, "available_stock": product.stock, "requested_quantity": item.quantity})
+                    out_of_stock_items.append({
+                        "product_id": product.id,
+                        "available_stock": product.stock,
+                        "requested_quantity": item.quantity
+                    })
 
             if out_of_stock_items:
                 return Response(
-                    {"detail": "Some products are out of stock.", "out_of_stock": out_of_stock_items},
+                    {
+                        "detail": "Some products are out of stock.",
+                        "out_of_stock": out_of_stock_items
+                    },
                     status=status.HTTP_400_BAD_REQUEST
                 )
 
@@ -106,9 +125,14 @@ class PaystackVerifyView(APIView):
             )
 
         return Response(
-            {"detail": "Payment verified and order finalized.", "order_id": order.id, "total_price": order_total},
+            {
+                "detail": "Payment verified and order finalized.",
+                "order_id": str(order.public_id),  # return UUID to frontend
+                "total_price": order_total
+            },
             status=status.HTTP_201_CREATED
         )
+
 
 
 class PaystackWebhookView(APIView):
