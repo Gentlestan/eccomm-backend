@@ -28,6 +28,8 @@ class PaystackVerifyView(APIView):
 
         reference = serializer.validated_data["reference"]
         pending_order_id = serializer.validated_data["pending_order_id"]
+        
+        print("PENDING ORDER ID:", pending_order_id, type(pending_order_id)) 
         shipping_address = serializer.validated_data.get("shipping_address", "")
 
         # 1️⃣ Fetch pending order
