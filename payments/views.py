@@ -17,8 +17,8 @@ from payments.services.paystack import verify_paystack_payment, verify_webhook_s
 
 class PaystackVerifyView(APIView):
     """
-    Verify Paystack payment from frontend (sync verification),
-    validate stock, create order & payment, deduct inventory.
+    Verify Paystack payment from frontend using pending order,
+    validate stock, create order items & payment, deduct inventory.
     """
     permission_classes = [IsAuthenticated]
 
@@ -27,40 +27,31 @@ class PaystackVerifyView(APIView):
         serializer.is_valid(raise_exception=True)
 
         reference = serializer.validated_data["reference"]
-        items = serializer.validated_data["items"]
+        pending_order_id = serializer.validated_data["pending_order_id"]
+        shipping_address = serializer.validated_data.get("shipping_address", "")
 
-        # Prevent duplicate verified payments
+        # 1️⃣ Fetch pending order
+        try:
+            order = Order.objects.get(id=pending_order_id, user=request.user, status="pending")
+        except Order.DoesNotExist:
+            return Response({"detail": "Pending order not found."}, status=status.HTTP_404_NOT_FOUND)
+
+        # 2️⃣ Prevent duplicate verified payments
         if Payment.objects.filter(reference=reference, status="verified").exists():
-            return Response(
-                {"detail": "Payment already verified."},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
+            return Response({"detail": "Payment already verified."}, status=status.HTTP_400_BAD_REQUEST)
 
-        # Verify with Paystack API
+        # 3️⃣ Verify payment with Paystack API
         try:
             paystack_response = verify_paystack_payment(reference)
         except Exception as e:
-            return Response(
-                {"detail": f"Error verifying payment: {str(e)}"},
-                status=status.HTTP_502_BAD_GATEWAY,
-            )
+            return Response({"detail": f"Error verifying payment: {str(e)}"}, status=status.HTTP_502_BAD_GATEWAY)
 
-        if not paystack_response.get("status"):
-            return Response(
-                {"detail": "Payment verification failed from Paystack."},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
+        if not paystack_response.get("status") or paystack_response["data"].get("status") != "success":
+            return Response({"detail": "Payment was not successful."}, status=status.HTTP_400_BAD_REQUEST)
 
-        data = paystack_response["data"]
-        if data.get("status") != "success":
-            return Response(
-                {"detail": "Payment was not successful."},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
+        amount_paid = paystack_response["data"]["amount"] / 100  # Convert kobo → naira
 
-        amount_paid = data.get("amount", 0) / 100  # Convert kobo → naira
-
-        # Atomic transaction for order creation
+        # 4️⃣ Process order atomically
         with transaction.atomic():
             order_total = 0
             out_of_stock_items = []
@@ -68,110 +59,60 @@ class PaystackVerifyView(APIView):
             # Lock product rows
             products_map = {
                 p.id: p for p in Product.objects.select_for_update().filter(
-                    id__in=[item["product_id"] for item in items]
+                    id__in=[item.product.id for item in order.items.all()]
                 )
             }
 
             # Validate stock
-            for item in items:
-                product = products_map.get(item["product_id"])
-                quantity = int(item["quantity"])
-
+            for item in order.items.all():
+                product = products_map.get(item.product.id)
                 if not product:
-                    return Response(
-                        {"detail": f"Product ID {item['product_id']} not found."},
-                        status=status.HTTP_400_BAD_REQUEST,
-                    )
-
-                if quantity <= 0:
-                    return Response(
-                        {"detail": f"Invalid quantity for {product.name}."},
-                        status=status.HTTP_400_BAD_REQUEST,
-                    )
-
-                if product.stock < quantity:
-                    out_of_stock_items.append({
-                        "product_id": product.id,
-                        "product_name": product.name,
-                        "available_stock": product.stock,
-                        "requested_quantity": quantity,
-                    })
+                    out_of_stock_items.append({"product_id": item.product.id, "available_stock": 0, "requested_quantity": item.quantity})
+                    continue
+                if product.stock < item.quantity:
+                    out_of_stock_items.append({"product_id": product.id, "available_stock": product.stock, "requested_quantity": item.quantity})
 
             if out_of_stock_items:
                 return Response(
-                    {
-                        "detail": "Some products are out of stock.",
-                        "out_of_stock": out_of_stock_items,
-                    },
-                    status=status.HTTP_400_BAD_REQUEST,
+                    {"detail": "Some products are out of stock.", "out_of_stock": out_of_stock_items},
+                    status=status.HTTP_400_BAD_REQUEST
                 )
 
-            # Create order
-            order = Order.objects.create(
-                user=request.user,
-                status="processing",
-                processing_at=timezone.now(),
-                total_price=0,
-            )
-
-            # Deduct stock and create order items
-            for item in items:
-                product = products_map[item["product_id"]]
-                quantity = int(item["quantity"])
-
-                product.stock -= quantity
+            # Deduct stock and calculate total
+            for item in order.items.all():
+                product = products_map[item.product.id]
+                product.stock -= item.quantity
                 product.save(update_fields=["stock"])
+                order_total += product.price * item.quantity
 
-                OrderItem.objects.create(
-                    order=order,
-                    product=product,
-                    quantity=quantity,
-                    price=product.price,
-                )
+            # Update order status & shipping address
+            order.status = "processing"
+            order.processing_at = timezone.now()
+            order.shipping_address = shipping_address
+            order.total_price = order_total
+            order.save(update_fields=["status", "processing_at", "shipping_address", "total_price"])
 
-                order_total += product.price * quantity
-
-            # Record payment
-            payment = Payment.objects.create(
+            # Create payment record
+            Payment.objects.create(
                 user=request.user,
                 order=order,
                 reference=reference,
                 amount=amount_paid,
                 status="verified",
-                provider_response=data,
+                provider_response=paystack_response["data"],
                 verified_at=timezone.now(),
             )
 
-            # Final amount check
-            if order_total != amount_paid:
-                payment.status = "failed"
-                payment.save(update_fields=["status"])
-                return Response(
-                    {
-                        "detail": "Payment amount does not match order total.",
-                        "order_total": order_total,
-                        "amount_paid": amount_paid,
-                    },
-                    status=status.HTTP_400_BAD_REQUEST,
-                )
-
-            order.total_price = order_total
-            order.save(update_fields=["total_price"])
-
         return Response(
-            {
-                "detail": "Payment verified and order created successfully.",
-                "order_id": order.id,
-                "total_price": order_total,
-            },
-            status=status.HTTP_201_CREATED,
+            {"detail": "Payment verified and order finalized.", "order_id": order.id, "total_price": order_total},
+            status=status.HTTP_201_CREATED
         )
 
 
 class PaystackWebhookView(APIView):
     """
     Handles Paystack webhook events asynchronously.
-    Must configure the webhook URL in Paystack dashboard.
+    Acts as a safety net for any missed verifications.
     """
     permission_classes = []  # Public webhook
 
