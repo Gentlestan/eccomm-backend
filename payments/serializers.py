@@ -8,7 +8,9 @@ class PaystackVerifySerializer(serializers.Serializer):
     Frontend should send:
     - reference: The Paystack transaction reference
     - pending_order_id: The server-generated UUID for the pending order
-    - shipping_address: Optional shipping info
+    - shipping_address: Street address
+    - shipping_city: City
+    - shipping_country: Country
     """
 
     reference = serializers.CharField(
@@ -18,11 +20,22 @@ class PaystackVerifySerializer(serializers.Serializer):
     pending_order_id = serializers.UUIDField(
         help_text="Server-generated pending order UUID"
     )
+
+    # Shipping details
     shipping_address = serializers.CharField(
-        required=False,
-        allow_blank=True,
-        max_length=500,
-        help_text="Optional shipping address"
+        required=True,
+        max_length=255,
+        help_text="Street address",
+    )
+    shipping_city = serializers.CharField(
+        required=True,
+        max_length=100,
+        help_text="City",
+    )
+    shipping_country = serializers.CharField(
+        required=True,
+        max_length=100,
+        help_text="Country",
     )
 
     def validate_reference(self, value):
