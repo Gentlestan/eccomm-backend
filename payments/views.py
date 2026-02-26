@@ -25,7 +25,9 @@ class PaystackVerifyView(APIView):
 
     def post(self, request):
         serializer = PaystackVerifySerializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
+        if not serializer.is_valid():
+            print("Serializer errors:", serializer.errors)  # Debug line
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
         reference = serializer.validated_data["reference"]
         pending_order_id = serializer.validated_data["pending_order_id"]
